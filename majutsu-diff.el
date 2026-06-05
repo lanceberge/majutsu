@@ -43,6 +43,8 @@
 (declare-function majutsu-color-words--collect-debug-change-spans "majutsu-color-words" (beg end))
 (declare-function majutsu-color-words--collect-debug-token-spans "majutsu-color-words" (beg end))
 (declare-function majutsu-color-words--group-change-pairs "majutsu-color-words" (spans))
+(declare-function majutsu-interactive-toggle-hunk "majutsu-interactive" ())
+(declare-function majutsu-interactive-toggle-file "majutsu-interactive" ())
 
 ;;; Options
 ;;;; Diff Mode
@@ -296,6 +298,23 @@ This intentionally keeps only jj diff \"Diff Formatting Options\"."
 (defun majutsu-diff--transient-read-revset (prompt initial-input _history)
   (unless current-prefix-arg
     (majutsu-read-revset prompt (or initial-input (majutsu-diff--transient-default-revset)))))
+
+(declare-function majutsu-log-select-commit "majutsu-log")
+
+(defun majutsu-diff--read-revset-from-log (prompt initial-input _history)
+  "Read a revset by picking a commit from the log graph.
+
+Pop up the log graph (see `majutsu-log-select-commit') so the target can
+be chosen by navigating to it, which works even when the transient was
+launched from a diff buffer with no changeset at point.  Press \\`e' in
+the graph to type a free-form revset instead.  With a prefix argument,
+clear the value; aborting the picker keeps the previous value."
+  (require 'majutsu-log)
+  (unless current-prefix-arg
+    (let* ((initial (or (and (stringp initial-input) initial-input)
+                        (majutsu-diff--transient-default-revset)))
+           (result (majutsu-log-select-commit prompt initial)))
+      (or result (keyboard-quit)))))
 
 ;;; Arguments
 ;;;; Prefix Classes
@@ -1313,7 +1332,9 @@ With prefix STYLE, cycle between `all' and `t'."
   "+" #'majutsu-diff-more-context
   "-" #'majutsu-diff-less-context
   "0" #'majutsu-diff-default-context
-  "j" #'majutsu-jump-to-diffstat-or-diff)
+  "j" #'majutsu-jump-to-diffstat-or-diff
+  "H" #'majutsu-interactive-toggle-hunk
+  "F" #'majutsu-interactive-toggle-file)
 
 (define-derived-mode majutsu-diff-mode majutsu-mode "Majutsu Diff"
   "Major mode for viewing jj diffs."

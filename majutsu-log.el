@@ -1786,6 +1786,119 @@ Return non-nil when the section could be located."
       (goto-char pos)
       (message "No more changesets"))))
 
+;;; Log Commit Selection
+
+(declare-function majutsu-read-revset "majutsu-jj")
+
+(defvar majutsu-log-select--result nil
+  "Dynamic storage for the value chosen by `majutsu-log-select-commit'.")
+
+(defconst majutsu-log-select--no-result (make-symbol "majutsu-log-select-aborted")
+  "Sentinel marking an aborted commit selection.")
+
+(defvar-local majutsu-log-select--prompt nil
+  "Prompt shown in the header line during commit selection.")
+
+(defvar-local majutsu-log-select--saved-header nil
+  "Saved `header-line-format' to restore after commit selection.")
+
+(defun majutsu-log-select-accept ()
+  "Accept the `jj-commit' at point as the selection result."
+  (interactive)
+  (let ((id (magit-section-value-if 'jj-commit)))
+    (unless id
+      (user-error "No changeset at point"))
+    (setq majutsu-log-select--result (substring-no-properties id))
+    (exit-recursive-edit)))
+
+(defun majutsu-log-select-accept-mouse (event)
+  "Accept the `jj-commit' clicked by mouse EVENT."
+  (interactive "e")
+  (mouse-set-point event)
+  (majutsu-log-select-accept))
+
+(defun majutsu-log-select-type-revset ()
+  "Abandon graph selection and type a revset in the minibuffer instead."
+  (interactive)
+  (let ((value (majutsu-read-revset (or majutsu-log-select--prompt "Revset: "))))
+    (setq majutsu-log-select--result value)
+    (exit-recursive-edit)))
+
+(defun majutsu-log-select-abort ()
+  "Abort commit selection, keeping the previous value."
+  (interactive)
+  (setq majutsu-log-select--result majutsu-log-select--no-result)
+  (exit-recursive-edit))
+
+(defvar-keymap majutsu-log-select-mode-map
+  :doc "Keymap active while selecting a commit with `majutsu-log-select-commit'."
+  "RET"       #'majutsu-log-select-accept
+  "<return>"  #'majutsu-log-select-accept
+  "<mouse-1>" #'majutsu-log-select-accept-mouse
+  "e"         #'majutsu-log-select-type-revset
+  "q"         #'majutsu-log-select-abort
+  "C-g"       #'majutsu-log-select-abort
+  "C-c C-c"   #'majutsu-log-select-accept
+  "C-c C-k"   #'majutsu-log-select-abort)
+
+(define-minor-mode majutsu-log-select-mode
+  "Minor mode active while picking a commit from the log graph.
+
+\\<majutsu-log-select-mode-map>Navigate with the usual log keys, then
+\\[majutsu-log-select-accept] (or `mouse-1') to accept the changeset at
+point, \\[majutsu-log-select-type-revset] to type a revset instead, or
+\\[majutsu-log-select-abort] to cancel."
+  :lighter " Pick"
+  :keymap majutsu-log-select-mode-map
+  (if majutsu-log-select-mode
+      (progn
+        (setq majutsu-log-select--saved-header header-line-format)
+        (setq header-line-format
+              (or majutsu-log-select--prompt
+                  (substitute-command-keys
+                   (concat "Pick commit:  \\[majutsu-log-select-accept]/click accept"
+                           "   \\[majutsu-log-select-type-revset] type revset"
+                           "   \\[majutsu-log-select-abort] cancel")))))
+    (setq header-line-format majutsu-log-select--saved-header)))
+
+(defun majutsu-log-select-commit (&optional prompt initial)
+  "Interactively select a `jj-commit' from the log graph.
+
+Pop up a `majutsu-log-mode' buffer, let the user navigate it, and return
+the change-id of the accepted commit, or nil when the selection is
+aborted.  PROMPT, when non-nil, is shown in the header line.  INITIAL,
+when a non-empty string, is a revision to move point to before selection
+begins.
+
+When invoked while a transient is active, transient automatically
+suspends its menu for the duration of the `recursive-edit'."
+  (let* ((root (or (majutsu--buffer-root)
+                   (and (boundp 'transient--original-buffer)
+                        (buffer-live-p transient--original-buffer)
+                        (majutsu--buffer-root transient--original-buffer))
+                   default-directory))
+         (winconf (current-window-configuration))
+         (buffer (or (majutsu--find-mode-buffer 'majutsu-log-mode root)
+                     (let ((default-directory root))
+                       (majutsu-log-setup-buffer))))
+         (majutsu-log-select--result majutsu-log-select--no-result))
+    (unwind-protect
+        (progn
+          (pop-to-buffer-same-window buffer)
+          (when (and (stringp initial) (not (string-empty-p initial)))
+            (majutsu--goto-log-entry initial))
+          (with-current-buffer buffer
+            (setq majutsu-log-select--prompt prompt)
+            (majutsu-log-select-mode 1))
+          (recursive-edit)
+          (and (not (eq majutsu-log-select--result majutsu-log-select--no-result))
+               majutsu-log-select--result))
+      (when (buffer-live-p buffer)
+        (with-current-buffer buffer
+          (when (bound-and-true-p majutsu-log-select-mode)
+            (majutsu-log-select-mode -1))))
+      (set-window-configuration winconf))))
+
 ;;; Log Mode
 
 (defcustom majutsu-log-mode-hook (list #'bug-reference-mode)
