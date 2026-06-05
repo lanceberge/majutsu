@@ -295,26 +295,26 @@ This intentionally keeps only jj diff \"Diff Formatting Options\"."
                            (current-buffer))
     (or (magit-section-value-if 'jj-commit) "@")))
 
-(defun majutsu-diff--transient-read-revset (prompt initial-input _history)
-  (unless current-prefix-arg
-    (majutsu-read-revset prompt (or initial-input (majutsu-diff--transient-default-revset)))))
-
 (declare-function majutsu-log-select-commit "majutsu-log")
 
-(defun majutsu-diff--read-revset-from-log (prompt initial-input _history)
-  "Read a revset by picking a commit from the log graph.
+(defun majutsu-diff--browse-revset (prompt default)
+  "Pick a revset by browsing the log graph.
 
-Pop up the log graph (see `majutsu-log-select-commit') so the target can
-be chosen by navigating to it, which works even when the transient was
-launched from a diff buffer with no changeset at point.  Press \\`e' in
-the graph to type a free-form revset instead.  With a prefix argument,
-clear the value; aborting the picker keeps the previous value."
+Used as the browse action for `majutsu-read-revset': pop up the log
+graph (see `majutsu-log-select-commit') so the target can be chosen by
+navigating to it, which works even when the transient was launched from
+a diff buffer with no changeset at point.  DEFAULT, when non-nil, is the
+revision point starts on.  Press \\`e' in the graph to type a free-form
+revset instead.  Aborting the picker quits the read."
   (require 'majutsu-log)
+  (or (majutsu-log-select-commit prompt default)
+      (keyboard-quit)))
+
+(defun majutsu-diff--transient-read-revset (prompt initial-input _history)
   (unless current-prefix-arg
-    (let* ((initial (or (and (stringp initial-input) initial-input)
-                        (majutsu-diff--transient-default-revset)))
-           (result (majutsu-log-select-commit prompt initial)))
-      (or result (keyboard-quit)))))
+    (majutsu-read-revset prompt
+                         (or initial-input (majutsu-diff--transient-default-revset))
+                         #'majutsu-diff--browse-revset)))
 
 ;;; Arguments
 ;;;; Prefix Classes

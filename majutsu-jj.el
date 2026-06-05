@@ -168,6 +168,14 @@ remote prefix from DIRECTORY so the result remains remote."
 (defvar majutsu-read-revset-history nil
   "Minibuffer history for `majutsu-read-revset'.")
 
+(defcustom majutsu-read-revset-browse-label "Browse tree…"
+  "Completion candidate that opens the log graph picker.
+Offered by `majutsu-read-revset' when a browse action is available;
+selecting it lets you pick a revision from the graph instead of typing
+a revset."
+  :group 'majutsu-process
+  :type 'string)
+
 (defconst majutsu-jj--revset-source-order
   '(pseudo workspace bookmark tag)
   "Source display order for revset completion metadata.")
@@ -239,13 +247,21 @@ workspace working-copy refs (`<workspace>@`), bookmarks, and tags.
 DEFAULT, when non-nil, is inserted first so users can accept it quickly."
   (plist-get (majutsu-jj-revset-candidate-data default) :candidates))
 
-(defun majutsu-read-revset (prompt &optional default)
+(defun majutsu-read-revset (prompt &optional default browse)
   "Prompt user with PROMPT to read a revision set string.
 Completion candidates include workspaces, bookmarks, and tags, while
-still allowing free-form revset expressions."
+still allowing free-form revset expressions.
+
+When BROWSE is non-nil it must be a function of two arguments, PROMPT
+and DEFAULT.  A `majutsu-read-revset-browse-label' candidate is then
+offered; selecting it calls BROWSE and returns its result, letting the
+user pick a revision from the log graph instead of typing one."
   (let* ((default (or default (magit-section-value-if 'jj-commit) "@"))
          (data (majutsu-jj-revset-candidate-data default))
          (candidates (plist-get data :candidates))
+         (candidates (if browse
+                         (cons majutsu-read-revset-browse-label candidates)
+                       candidates))
          (sources (plist-get data :sources))
          (annotation (majutsu-jj--revset-annotation-function sources))
          (table (lambda (string pred action)
@@ -259,9 +275,12 @@ still allowing free-form revset expressions."
                                  table nil nil nil
                                  'majutsu-read-revset-history
                                  default)))
-    (if (string-empty-p value)
-        (user-error "Need non-empty input")
-      value)))
+    (cond
+     ((and browse (string-equal value majutsu-read-revset-browse-label))
+      (funcall browse prompt default))
+     ((string-empty-p value)
+      (user-error "Need non-empty input"))
+     (t value))))
 
 (defun majutsu-jj--parse-diff-range (range)
   "Parse RANGE into (from . to) cons.
