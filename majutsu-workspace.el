@@ -29,6 +29,7 @@
 (require 'cl-lib)
 (require 'subr-x)
 
+(require 'majutsu-diff)
 (require 'majutsu-mode)
 (require 'majutsu-process)
 (require 'majutsu-template)
@@ -74,7 +75,7 @@ Return a normalized directory path, or nil if jj rendered an error string."
      :parse identity)
     (desc
      :template [:if [:target :description]
-                   [:method [:target :description] :first_line]]
+                    [:method [:target :description] :first_line]]
      :parse majutsu-workspace--parse-desc)
     (root
      :template [:root]
@@ -445,6 +446,33 @@ workspace directories are not touched on disk."
           (message "Workspace(s) forgotten"))
       (message "Workspace forget failed"))))
 
+(defcustom majutsu-workspace-add-command nil
+  "Command to run after `majutsu-workspace-add' creates a workspace.
+When non-nil, the function is called with `default-directory' bound to
+the new workspace root.  When nil, `majutsu-workspace-visit' is used."
+  :group 'majutsu
+  :type '(choice (const :tag "Visit (dired)" nil)
+                 function))
+
+(defcustom majutsu-workspace-add-dir nil
+  "Initial destination directory for `majutsu-workspace-add'.
+Either a string (a directory path), a function of no arguments returning
+a string, or nil to use the parent directory of the current repo root."
+  :group 'majutsu
+  :type '(choice (const :tag "Parent of repo root" nil)
+                 directory
+                 function))
+
+(defun majutsu-workspace--add-dir-default ()
+  "Resolve `majutsu-workspace-add-dir' to a directory string."
+  (cond
+   ((functionp majutsu-workspace-add-dir)
+    (funcall majutsu-workspace-add-dir))
+   ((stringp majutsu-workspace-add-dir)
+    majutsu-workspace-add-dir)
+   (t (file-name-directory
+       (directory-file-name (majutsu--toplevel-safe))))))
+
 ;;;###autoload
 (defun majutsu-workspace-add (destination &optional name revision sparse-patterns)
   "Add a workspace.
@@ -453,16 +481,16 @@ DESTINATION is where to create the new workspace.
 Optional NAME, REVISION (revset), and SPARSE-PATTERNS correspond to
   `jj workspace add` options."
   (interactive
-   (let* ((root (majutsu--toplevel-safe))
-          (parent (file-name-directory (directory-file-name root)))
-          (destination (read-directory-name "Create workspace at: " parent nil nil))
+   (let* ((default (majutsu-workspace--add-dir-default))
+          (destination (read-directory-name "Create workspace at: " default nil nil))
           (name (string-trim (majutsu-read-string "Workspace name (empty = default)" nil nil "")))
-          (revision (string-trim (majutsu-read-string "Parent revset (-r, empty = default)" nil nil "")))
+          (revision (majutsu-read-revset "Parent revset" "@-"
+                                         #'majutsu-diff--browse-revset))
           (sparse (majutsu-completing-read "Sparse patterns"
                                            '("copy" "full" "empty") nil t nil nil "copy")))
      (list destination
            (unless (string-empty-p name) name)
-           (unless (string-empty-p revision) revision)
+           revision
            (unless (equal sparse "copy") sparse))))
   (let* ((dest (expand-file-name destination))
          (args (append (list "workspace" "add" (majutsu-convert-filename-for-jj dest))
@@ -473,8 +501,10 @@ Optional NAME, REVISION (revset), and SPARSE-PATTERNS correspond to
     (if (zerop exit)
         (progn
           (message "Workspace created in %s" dest)
-          ;; Like Magit, visit the new workspace.
-          (majutsu-workspace-visit dest))
+          (if majutsu-workspace-add-command
+              (let ((default-directory (file-name-as-directory dest)))
+                (call-interactively majutsu-workspace-add-command))
+            (majutsu-workspace-visit dest)))
       (message "Workspace creation failed"))))
 
 ;;; Transient
