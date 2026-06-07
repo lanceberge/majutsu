@@ -2037,6 +2037,38 @@ offer to create one using `jj git init`."
      (t
       (user-error "Abort")))))
 
+;;;###autoload
+(defun majutsu-list-commits-for-file-dwim (&optional file)
+  "Show commits that modified FILE in a dedicated log buffer.
+
+Without FILE, derive it from `majutsu-buffer-blob-path' or
+`buffer-file-name'.  The log is scoped to the revset
+`files(\"FILE\")', ordered with the most recent commit at the top."
+  (interactive)
+  (let* ((root (majutsu--toplevel-safe))
+         (path (or file
+                   (bound-and-true-p majutsu-buffer-blob-path)
+                   (and buffer-file-name
+                        (file-relative-name buffer-file-name root))
+                   (user-error "No file at point")))
+         (revset (format "files(\"%s\")" path)))
+    (majutsu-setup-buffer #'majutsu-log-mode t
+      (majutsu-buffer-log-args nil)
+      (majutsu-buffer-log-revsets revset)
+      (majutsu-buffer-log-filesets nil))))
+
+;;;###autoload
+(defun majutsu-list-commits-for-file (file)
+  "Prompt for FILE and show commits that modified it.
+See `majutsu-list-commits-for-file-dwim'."
+  (interactive
+   (let* ((root (majutsu--toplevel-safe))
+          (default-directory root))
+     (list (file-relative-name
+            (read-file-name "Log commits for file: " root nil t)
+            root))))
+  (majutsu-list-commits-for-file-dwim file))
+
 ;;; Commands
 
 (defun majutsu-log-transient-set-revisions ()
