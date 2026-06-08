@@ -33,6 +33,27 @@
                     %)
               majutsu-buffer-diff-range))))
 
+(defcustom majutsu-split-hook nil
+  "Normal hook run after `majutsu-split-execute' finishes successfully.
+Runs in the process sentinel once jj exits with code 0, with
+`default-directory' bound to the repository root the split ran in."
+  :group 'majutsu
+  :type 'hook)
+
+(defun majutsu-split--finish-callback (process exit-code)
+  "Run `majutsu-split-hook' when the split PROCESS exited cleanly.
+EXIT-CODE is the integer exit status reported by the sentinel."
+  (when (and (integerp exit-code) (zerop exit-code))
+    (let ((default-directory (or (process-get process 'default-dir)
+                                 default-directory)))
+      (run-hooks 'majutsu-split-hook))))
+
+(defun majutsu-split--attach-hook (process)
+  "Arrange for `majutsu-split-hook' to run when PROCESS finishes."
+  (when (processp process)
+    (process-put process 'finish-callback #'majutsu-split--finish-callback))
+  process)
+
 (defun majutsu-split-execute (args)
   "Execute split with selections recorded in the transient."
   (interactive (list (transient-args 'majutsu-split)))
@@ -50,10 +71,12 @@
         (progn
           ;; reverse=t means reset $right to $left, then apply patch forward
           ;; Result: $right = selected content = first commit
-          (majutsu-interactive-run-with-patch "split" args patch t)
+          (majutsu-split--attach-hook
+           (majutsu-interactive-run-with-patch "split" args patch t))
           (with-current-buffer selection-buf
             (majutsu-interactive-clear)))
-      (majutsu-run-jj-with-editor (cons "split" args)))))
+      (majutsu-split--attach-hook
+       (majutsu-run-jj-with-editor (cons "split" args))))))
 
 ;;;; Infix Commands
 
