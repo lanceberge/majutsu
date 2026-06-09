@@ -169,12 +169,23 @@ remote prefix from DIRECTORY so the result remains remote."
   "Minibuffer history for `majutsu-read-revset'.")
 
 (defcustom majutsu-read-revset-browse-label "Browse tree…"
-  "Completion candidate that opens the log graph picker.
-Offered by `majutsu-read-revset' when a browse action is available;
-selecting it lets you pick a revision from the graph instead of typing
-a revset."
+  "First completion candidate offered by `majutsu-read-revset'.
+Selecting it pops up the log graph picker (`majutsu-jj--browse-revset')
+so the revision can be chosen from the tree instead of typed."
   :group 'majutsu-process
   :type 'string)
+
+(declare-function majutsu-log-select-commit "majutsu-log")
+
+(defun majutsu-jj--browse-revset (prompt default)
+  "Pick a revset by browsing the log graph.
+Pop up the log graph (see `majutsu-log-select-commit') with PROMPT in
+the header line and point on DEFAULT, returning the selected change-id.
+Press \\`e' in the graph to type a free-form revset instead.  Aborting
+the picker quits the read."
+  (require 'majutsu-log)
+  (or (majutsu-log-select-commit prompt default)
+      (keyboard-quit)))
 
 (defconst majutsu-jj--revset-source-order
   '(pseudo workspace bookmark tag)
@@ -247,21 +258,41 @@ workspace working-copy refs (`<workspace>@`), bookmarks, and tags.
 DEFAULT, when non-nil, is inserted first so users can accept it quickly."
   (plist-get (majutsu-jj-revset-candidate-data default) :candidates))
 
-(defun majutsu-read-revset (prompt &optional default browse)
-  "Prompt user with PROMPT to read a revision set string.
+(defun majutsu-read-revset-no-browse (prompt &optional default)
+  "Prompt with PROMPT to read a revision set string.
 Completion candidates include workspaces, bookmarks, and tags, while
-still allowing free-form revset expressions.
-
-When BROWSE is non-nil it must be a function of two arguments, PROMPT
-and DEFAULT.  A `majutsu-read-revset-browse-label' candidate is then
-offered; selecting it calls BROWSE and returns its result, letting the
-user pick a revision from the log graph instead of typing one."
+still allowing free-form revset expressions.  DEFAULT, when non-nil, is
+inserted first so users can accept it quickly."
   (let* ((default (or default (magit-section-value-if 'jj-commit) "@"))
          (data (majutsu-jj-revset-candidate-data default))
          (candidates (plist-get data :candidates))
-         (candidates (if browse
-                         (cons majutsu-read-revset-browse-label candidates)
-                       candidates))
+         (sources (plist-get data :sources))
+         (annotation (majutsu-jj--revset-annotation-function sources))
+         (table (lambda (string pred action)
+                  (if (eq action 'metadata)
+                      `(metadata
+                        (display-sort-function . identity)
+                        (category . majutsu-revision)
+                        (annotation-function . ,annotation))
+                    (complete-with-action action candidates string pred))))
+         (value (completing-read (format-prompt prompt default)
+                                 table nil nil nil
+                                 'majutsu-read-revset-history
+                                 default)))
+    (if (string-empty-p value)
+        (user-error "Need non-empty input")
+      value)))
+
+(defun majutsu-read-revset (prompt &optional default)
+  "Prompt with PROMPT to read a revision set string.
+Like `majutsu-read-revset-no-browse', but offers
+`majutsu-read-revset-browse-label' as the first candidate.  Selecting it
+calls `majutsu-jj--browse-revset' to pick the revision from the log
+graph instead of typing one."
+  (let* ((default (or default (magit-section-value-if 'jj-commit) "@"))
+         (label majutsu-read-revset-browse-label)
+         (data (majutsu-jj-revset-candidate-data default))
+         (candidates (cons label (plist-get data :candidates)))
          (sources (plist-get data :sources))
          (annotation (majutsu-jj--revset-annotation-function sources))
          (table (lambda (string pred action)
@@ -276,8 +307,8 @@ user pick a revision from the log graph instead of typing one."
                                  'majutsu-read-revset-history
                                  default)))
     (cond
-     ((and browse (string-equal value majutsu-read-revset-browse-label))
-      (funcall browse prompt default))
+     ((string-equal value label)
+      (majutsu-jj--browse-revset prompt default))
      ((string-empty-p value)
       (user-error "Need non-empty input"))
      (t value))))

@@ -1788,7 +1788,7 @@ Return non-nil when the section could be located."
 
 ;;; Log Commit Selection
 
-(declare-function majutsu-read-revset "majutsu-jj")
+(declare-function majutsu-read-revset-no-browse "majutsu-jj")
 
 (defvar majutsu-log-select--result nil
   "Dynamic storage for the value chosen by `majutsu-log-select-commit'.")
@@ -1820,7 +1820,8 @@ Return non-nil when the section could be located."
 (defun majutsu-log-select-type-revset ()
   "Abandon graph selection and type a revset in the minibuffer instead."
   (interactive)
-  (let ((value (majutsu-read-revset (or majutsu-log-select--prompt "Revset: "))))
+  (let ((value (majutsu-read-revset-no-browse
+                (or majutsu-log-select--prompt "Revset: "))))
     (setq majutsu-log-select--result value)
     (exit-recursive-edit)))
 

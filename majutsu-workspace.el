@@ -484,8 +484,7 @@ Optional NAME, REVISION (revset), and SPARSE-PATTERNS correspond to
    (let* ((default (majutsu-workspace--add-dir-default))
           (destination (read-directory-name "Create workspace at: " default nil nil))
           (name (string-trim (majutsu-read-string "Workspace name (empty = default)" nil nil "")))
-          (revision (majutsu-read-revset "Parent revset" "@-"
-                                         #'majutsu-diff--browse-revset))
+          (revision (majutsu-read-revset "Parent revset" "@-"))
           (sparse (majutsu-completing-read "Sparse patterns"
                                            '("copy" "full" "empty") nil t nil nil "copy")))
      (list destination

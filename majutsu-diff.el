@@ -295,26 +295,10 @@ This intentionally keeps only jj diff \"Diff Formatting Options\"."
                            (current-buffer))
     (or (magit-section-value-if 'jj-commit) "@")))
 
-(declare-function majutsu-log-select-commit "majutsu-log")
-
-(defun majutsu-diff--browse-revset (prompt default)
-  "Pick a revset by browsing the log graph.
-
-Used as the browse action for `majutsu-read-revset': pop up the log
-graph (see `majutsu-log-select-commit') so the target can be chosen by
-navigating to it, which works even when the transient was launched from
-a diff buffer with no changeset at point.  DEFAULT, when non-nil, is the
-revision point starts on.  Press \\`e' in the graph to type a free-form
-revset instead.  Aborting the picker quits the read."
-  (require 'majutsu-log)
-  (or (majutsu-log-select-commit prompt default)
-      (keyboard-quit)))
-
 (defun majutsu-diff--transient-read-revset (prompt initial-input _history)
   (unless current-prefix-arg
     (majutsu-read-revset prompt
-                         (or initial-input (majutsu-diff--transient-default-revset))
-                         #'majutsu-diff--browse-revset)))
+                         (or initial-input (majutsu-diff--transient-default-revset)))))
 
 ;;; Arguments
 ;;;; Prefix Classes
