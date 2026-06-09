@@ -50,27 +50,6 @@ a jj-commit section, add --revision from that section."
       (mapcar (##if (string-prefix-p "--revisions=" %) (concat "--revision=" (substring % 12)))
               majutsu-buffer-diff-range))))
 
-(defcustom majutsu-squash-hook nil
-  "Normal hook run after `majutsu-squash-execute' finishes successfully.
-Runs in the process sentinel once jj exits with code 0, with
-`default-directory' bound to the repository root the squash ran in."
-  :group 'majutsu
-  :type 'hook)
-
-(defun majutsu-squash--finish-callback (process exit-code)
-  "Run `majutsu-squash-hook' when the squash PROCESS exited cleanly.
-EXIT-CODE is the integer exit status reported by the sentinel."
-  (when (and (integerp exit-code) (zerop exit-code))
-    (let ((default-directory (or (process-get process 'default-dir)
-                                 default-directory)))
-      (run-hooks 'majutsu-squash-hook))))
-
-(defun majutsu-squash--attach-hook (process)
-  "Arrange for `majutsu-squash-hook' to run when PROCESS finishes."
-  (when (processp process)
-    (process-put process 'finish-callback #'majutsu-squash--finish-callback))
-  process)
-
 (defun majutsu-squash-execute (args)
   "Execute squash with selections recorded in the transient."
   (interactive (list (majutsu-squash-arguments)))
@@ -82,12 +61,10 @@ EXIT-CODE is the integer exit status reported by the sentinel."
         (progn
           ;; reverse=t means reset $right to $left, then apply patch forward
           ;; Result: $right = selected content = what gets squashed
-          (majutsu-squash--attach-hook
-           (majutsu-interactive-run-with-patch "squash" args patch t))
+          (majutsu-interactive-run-with-patch "squash" args patch t)
           (with-current-buffer selection-buf
             (majutsu-interactive-clear)))
-      (majutsu-squash--attach-hook
-       (majutsu-run-jj-with-editor (cons "squash" args))))))
+      (majutsu-run-jj-with-editor (cons "squash" args)))))
 
 ;;;; Infix Commands
 

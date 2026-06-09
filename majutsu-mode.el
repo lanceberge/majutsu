@@ -303,6 +303,15 @@ another value."
   :type 'hook
   :group 'majutsu)
 
+(defcustom majutsu-post-refresh-hook nil
+  "Normal hook run by `majutsu-refresh' after refreshing repository buffers.
+Fires once per `majutsu-refresh' call, after the current buffer and the
+matching log buffer (if any) have been refreshed.  Skipped when
+`majutsu-inhibit-refresh' is non-nil.  See also `majutsu-refresh-buffer-hook',
+which runs after refreshing a single buffer."
+  :type 'hook
+  :group 'majutsu)
+
 (defun majutsu-get-mode-buffer (mode &optional value directory)
   "Return a buffer for DIRECTORY whose `major-mode' is MODE.
 
@@ -526,7 +535,8 @@ Refresh the current buffer if its major mode derives from
                  (fboundp 'majutsu-log-refresh))
         (when-let* ((buffer (majutsu--find-mode-buffer 'majutsu-log-mode root)))
           (with-current-buffer buffer
-            (ignore-errors (majutsu-log-refresh))))))))
+            (ignore-errors (majutsu-log-refresh))))))
+    (run-hooks 'majutsu-post-refresh-hook)))
 
 (defun majutsu-hack-dir-local-variables ()
   "Like `hack-dir-local-variables-non-file-buffer' but ignore some variables.
