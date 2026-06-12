@@ -562,6 +562,12 @@ when the user has strict .dir-locals.el settings."
   "Revision set argument for the current log buffer.")
 (defvar-local majutsu-buffer-log-filesets nil
   "Filesets filter for the current log buffer.")
+(defvar-local majutsu-buffer-log-limit-increase nil
+  "Extra revisions added to the base `--limit' by `majutsu-log-expand'.
+nil means no expansion is in effect.")
+(defvar-local majutsu-buffer-log-expand-step 0
+  "Number of consecutive `majutsu-log-expand' presses in effect.
+Indexes `majutsu-log-expand-increments' to choose the next increment.")
 
 (defvar-local majutsu-buffer-diff-args nil
   "Remembered diff formatting arguments for the current diff buffer.")

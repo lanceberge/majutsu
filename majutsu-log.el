@@ -104,6 +104,28 @@ rendered by `majutsu-log-insert-error-header' on the next refresh.")
   :type 'hook
   :group 'majutsu)
 
+(defcustom majutsu-log-expand-increments '(10 20 50)
+  "Sequence of revision counts added by successive `majutsu-log-expand' calls.
+The Nth `+' press in a log buffer adds the Nth element to the current
+`--limit'.  Once the sequence is exhausted the last value repeats.
+
+May instead be a function of one integer argument STEP (0-based) that
+returns the increment to apply at that step."
+  :type '(choice (repeat (integer :tag "Increment"))
+                 (function :tag "Function of STEP"))
+  :group 'majutsu)
+
+(defcustom majutsu-log-default-limit nil
+  "Starting limit assumed by `majutsu-log-expand' when none is set.
+When the buffer has no `--limit=' argument and this is nil, the first
+`+' press sets `--limit' to the first increment from
+`majutsu-log-expand-increments' rather than adding to anything."
+  :type '(choice (const :tag "None (use jj default)" nil) integer)
+  :group 'majutsu)
+
+(defvar majutsu-buffer-log-limit-increase)
+(defvar majutsu-buffer-log-expand-step)
+
 (defun majutsu-log--args-member-p (args flag)
   (and args (member flag args)))
 
@@ -138,6 +160,51 @@ When TAKES-VALUE is non-nil, also remove the following element."
       (append args (list opt value))
     args))
 
+(defun majutsu-log--args-limit-value (args)
+  "Return the integer value of a `--limit=N' token in ARGS, or nil."
+  (when-let* ((tok (seq-find (lambda (a)
+                               (and (stringp a)
+                                    (string-prefix-p "--limit=" a)))
+                             args))
+              (val (substring tok (length "--limit="))))
+    (and (string-match-p "\\`[0-9]+\\'" val)
+         (string-to-number val))))
+
+(defun majutsu-log--args-set-limit (args value)
+  "Return ARGS with any `--limit=' token replaced by `--limit=VALUE'.
+When VALUE is nil, the limit token is removed."
+  (let ((stripped (seq-remove (lambda (a)
+                                (and (stringp a)
+                                     (string-prefix-p "--limit=" a)))
+                              args)))
+    (if value
+        (append stripped (list (format "--limit=%d" value)))
+      stripped)))
+
+(defun majutsu-log--next-expand-increment (step)
+  "Return the increment to apply at STEP (0-based).
+Reads from `majutsu-log-expand-increments'."
+  (let ((spec majutsu-log-expand-increments))
+    (cond
+     ((functionp spec) (funcall spec step))
+     ((or (null spec) (not (listp spec))) 0)
+     (t (nth (min step (1- (length spec))) spec)))))
+
+(defun majutsu-log--apply-limit-increase (args)
+  "Apply `majutsu-buffer-log-limit-increase' to ARGS' `--limit=' token."
+  (if (not majutsu-buffer-log-limit-increase)
+      args
+    (let* ((base (or (majutsu-log--args-limit-value args)
+                     majutsu-log-default-limit
+                     0))
+           (new (+ base majutsu-buffer-log-limit-increase)))
+      (majutsu-log--args-set-limit args new))))
+
+(defun majutsu-log--reset-expand ()
+  "Clear any in-effect expansion on the current log buffer."
+  (setq-local majutsu-buffer-log-limit-increase nil)
+  (setq-local majutsu-buffer-log-expand-step 0))
+
 (defun majutsu-log--summary-parts ()
   "Return a list of human-readable fragments describing current log buffer."
   (pcase-let* ((`(,args ,revsets ,filesets)
@@ -145,8 +212,17 @@ When TAKES-VALUE is non-nil, also remove the following element."
                (parts '()))
     (when revsets
       (push (format "rev=%s" revsets) parts))
-    (when-let* ((limit (majutsu-log--args-get-option args "-n")))
-      (push (format "limit=%s" limit) parts))
+    (let* ((base (majutsu-log--args-limit-value args))
+           (inc (and (derived-mode-p 'majutsu-log-mode)
+                     majutsu-buffer-log-limit-increase))
+           (effective (cond ((and base inc) (+ base inc))
+                            (base base)
+                            (inc (+ (or majutsu-log-default-limit 0) inc)))))
+      (when effective
+        (push (if (and inc (> inc 0))
+                  (format "limit=%d (+%d expanded)" effective inc)
+                (format "limit=%d" effective))
+              parts)))
     (when (majutsu-log--args-member-p args "--reversed")
       (push "reversed" parts))
     (when (majutsu-log--args-member-p args "--no-graph")
@@ -607,6 +683,7 @@ Returns a plist with :template, :columns, and :module-columns."
   "Build argument list for `jj log' using current log variables."
   (pcase-let ((`(,args ,revsets ,filesets)
                (majutsu-log--get-value 'majutsu-log-mode 'current)))
+    (setq args (majutsu-log--apply-limit-increase args))
     (let ((cmd '("log")))
       (setq cmd (append cmd args))
       (when revsets
@@ -1928,7 +2005,8 @@ suspends its menu for the duration of the `recursive-edit'."
   "D" 'majutsu-diff-dwim
   "Y" 'majutsu-duplicate-dwim
   "B" 'majutsu-new-with-before
-  "A" 'majutsu-new-with-after)
+  "A" 'majutsu-new-with-after
+  "+" 'majutsu-log-expand)
 
 (define-derived-mode majutsu-log-mode majutsu-mode "Majutsu Log"
   "Major mode for interacting with jj version control system."
@@ -2092,10 +2170,29 @@ See `majutsu-list-commits-for-file-dwim'."
     (majutsu-log--set-value 'majutsu-log-mode args nil filesets))
   (majutsu-log-transient--redisplay))
 
+(defun majutsu-log-expand (&optional reset)
+  "Show more revisions in the current log buffer.
+Each call adds the next entry from `majutsu-log-expand-increments' to
+the buffer's `--limit'.  With a prefix argument RESET, collapse the
+expansion back to the base limit instead."
+  (interactive "P")
+  (majutsu--assert-mode 'majutsu-log-mode)
+  (if reset
+      (majutsu-log--reset-expand)
+    (let ((inc (majutsu-log--next-expand-increment
+                majutsu-buffer-log-expand-step)))
+      (when (and (integerp inc) (> inc 0))
+        (setq-local majutsu-buffer-log-limit-increase
+                    (+ (or majutsu-buffer-log-limit-increase 0) inc))
+        (cl-incf majutsu-buffer-log-expand-step))))
+  (majutsu-refresh-buffer))
+
 (defun majutsu-log-transient-reset ()
   "Reset log options to defaults."
   (interactive)
   (majutsu-log--set-value 'majutsu-log-mode nil nil nil)
+  (when (derived-mode-p 'majutsu-log-mode)
+    (majutsu-log--reset-expand))
   (if (fboundp 'transient-reset)
       (transient-reset)
     (majutsu-log-transient--redisplay)))
@@ -2139,12 +2236,21 @@ See `majutsu-list-commits-for-file-dwim'."
                (majutsu-log--get-value (oref obj major-mode) 'prefix)))
     (oset obj value (if filesets `(("--" ,@filesets) ,@args) args))))
 
+(defun majutsu-log--maybe-reset-expand (old-args new-args)
+  "Reset expansion state if the `--limit=' token differs between args.
+OLD-ARGS and NEW-ARGS are arg lists; only applies in a log buffer."
+  (when (and (derived-mode-p 'majutsu-log-mode)
+             (not (equal (majutsu-log--args-limit-value old-args)
+                         (majutsu-log--args-limit-value new-args))))
+    (majutsu-log--reset-expand)))
+
 (cl-defmethod transient-set-value ((obj majutsu-log-prefix))
   (let* ((obj (oref obj prototype))
          (mode (or (oref obj major-mode) major-mode)))
     (pcase-let ((`(,args ,files) (transient-args (oref obj command)))
-                (`(,_old-args ,revsets ,_filesets)
+                (`(,old-args ,revsets ,_filesets)
                  (majutsu-log--get-value mode 'direct)))
+      (majutsu-log--maybe-reset-expand old-args args)
       (majutsu-log--set-value mode args revsets files)
       (transient--history-push obj)
       (majutsu-refresh))))
@@ -2153,8 +2259,9 @@ See `majutsu-list-commits-for-file-dwim'."
   (let* ((obj (oref obj prototype))
          (mode (or (oref obj major-mode) major-mode)))
     (pcase-let ((`(,args ,files) (transient-args (oref obj command)))
-                (`(,_old-args ,revsets ,_filesets)
+                (`(,old-args ,revsets ,_filesets)
                  (majutsu-log--get-value mode 'direct)))
+      (majutsu-log--maybe-reset-expand old-args args)
       (majutsu-log--set-value mode args revsets files t)
       (transient--history-push obj)
       (majutsu-refresh))))
@@ -2203,6 +2310,7 @@ See `majutsu-list-commits-for-file-dwim'."
                      (cadr (majutsu-log--get-value 'majutsu-log-mode 'direct))))
      :transient t)
     (majutsu-log:--limit)
+    ("+" "Expand" majutsu-log-expand :transient t)
     (majutsu-log:--reversed)
     (majutsu-log:--no-graph)
     ("R" "Clear revset" majutsu-log-transient-clear-revisions

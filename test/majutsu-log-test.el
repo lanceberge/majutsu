@@ -859,6 +859,63 @@
         (majutsu-log-goto-child))
       (should (equal (magit-section-value-if 'jj-commit) "child-b")))))
 
+(ert-deftest majutsu-log-next-expand-increment/uses-list-progression ()
+  "List form returns the Nth element and repeats the last entry."
+  (let ((majutsu-log-expand-increments '(10 20 50)))
+    (should (= (majutsu-log--next-expand-increment 0) 10))
+    (should (= (majutsu-log--next-expand-increment 1) 20))
+    (should (= (majutsu-log--next-expand-increment 2) 50))
+    (should (= (majutsu-log--next-expand-increment 3) 50))
+    (should (= (majutsu-log--next-expand-increment 9) 50))))
+
+(ert-deftest majutsu-log-next-expand-increment/accepts-function ()
+  "Function form receives STEP and its return value is used directly."
+  (let ((majutsu-log-expand-increments (lambda (step) (* (1+ step) 7))))
+    (should (= (majutsu-log--next-expand-increment 0) 7))
+    (should (= (majutsu-log--next-expand-increment 3) 28))))
+
+(ert-deftest majutsu-log-args-limit-value/parses-token ()
+  (should (equal (majutsu-log--args-limit-value
+                  '("--reversed" "--limit=42" "--no-graph"))
+                 42))
+  (should (null (majutsu-log--args-limit-value '("--reversed"))))
+  (should (null (majutsu-log--args-limit-value '("--limit=abc")))))
+
+(ert-deftest majutsu-log-args-set-limit/replaces-existing-token ()
+  (should (equal (majutsu-log--args-set-limit '("--limit=10" "--reversed") 30)
+                 '("--reversed" "--limit=30")))
+  (should (equal (majutsu-log--args-set-limit '("--reversed") 50)
+                 '("--reversed" "--limit=50")))
+  (should (equal (majutsu-log--args-set-limit '("--limit=10" "--reversed") nil)
+                 '("--reversed"))))
+
+(ert-deftest majutsu-log-apply-limit-increase/adds-on-top-of-base ()
+  "With a base `--limit=', the increase is added to it."
+  (let ((majutsu-buffer-log-limit-increase 20)
+        (majutsu-log-default-limit nil))
+    (should (equal (majutsu-log--apply-limit-increase
+                    '("--reversed" "--limit=30"))
+                   '("--reversed" "--limit=50")))))
+
+(ert-deftest majutsu-log-apply-limit-increase/uses-default-when-no-base ()
+  "Without a base `--limit=', `majutsu-log-default-limit' is used."
+  (let ((majutsu-buffer-log-limit-increase 10)
+        (majutsu-log-default-limit 5))
+    (should (equal (majutsu-log--apply-limit-increase '("--reversed"))
+                   '("--reversed" "--limit=15")))))
+
+(ert-deftest majutsu-log-apply-limit-increase/treats-nil-base-as-zero ()
+  "With no base and nil default, the increase becomes the limit value."
+  (let ((majutsu-buffer-log-limit-increase 10)
+        (majutsu-log-default-limit nil))
+    (should (equal (majutsu-log--apply-limit-increase nil)
+                   '("--limit=10")))))
+
+(ert-deftest majutsu-log-apply-limit-increase/no-op-without-increase ()
+  (let ((majutsu-buffer-log-limit-increase nil))
+    (should (equal (majutsu-log--apply-limit-increase '("--limit=30"))
+                   '("--limit=30")))))
+
 (ert-deftest majutsu-log-apply-face-policy-modes ()
   "Face policy should support preserve, strip, and override."
   (let* ((raw (propertize "x" 'font-lock-face 'error))
