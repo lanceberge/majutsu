@@ -492,11 +492,15 @@ Optional NAME, REVISION (revset), and SPARSE-PATTERNS correspond to
            revision
            (unless (equal sparse "copy") sparse))))
   (let* ((dest (expand-file-name destination))
+         (parent (file-name-directory (directory-file-name dest)))
          (args (append (list "workspace" "add" (majutsu-convert-filename-for-jj dest))
                        (and name (list "--name" name))
                        (and revision (list "--revision" revision))
                        (and sparse-patterns (list "--sparse-patterns" sparse-patterns))))
-         (exit (apply #'majutsu-run-jj args)))
+         (exit (progn
+                 (when parent
+                   (make-directory parent t))
+                 (apply #'majutsu-run-jj args))))
     (if (zerop exit)
         (progn
           (message "Workspace created in %s" dest)
