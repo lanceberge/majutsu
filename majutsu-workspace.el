@@ -473,25 +473,26 @@ a string, or nil to use the parent directory of the current repo root."
    (t (file-name-directory
        (directory-file-name (majutsu--toplevel-safe))))))
 
+(defun majutsu-workspace--name-from-destination (destination)
+  "Return the workspace name implied by DESTINATION."
+  (file-name-nondirectory (directory-file-name (expand-file-name destination))))
+
 ;;;###autoload
 (defun majutsu-workspace-add (destination &optional name revision sparse-patterns)
   "Add a workspace.
 
 DESTINATION is where to create the new workspace.
 Optional NAME, REVISION (revset), and SPARSE-PATTERNS correspond to
-  `jj workspace add` options."
+`jj workspace add` options.  When NAME is nil, derive it from the final
+path component of DESTINATION."
   (interactive
    (let* ((default (majutsu-workspace--add-dir-default))
-          (destination (read-directory-name "Create workspace at: " default nil nil))
-          (name (string-trim (majutsu-read-string "Workspace name (empty = default)" nil nil "")))
-          (revision (majutsu-read-revset "Parent revset" "@-"))
-          (sparse (majutsu-completing-read "Sparse patterns"
-                                           '("copy" "full" "empty") nil t nil nil "copy")))
-     (list destination
-           (unless (string-empty-p name) name)
-           revision
-           (unless (equal sparse "copy") sparse))))
+          (destination (read-directory-name "Create workspace at: " default nil nil)))
+     (list destination)))
   (let* ((dest (expand-file-name destination))
+         (name (if (and name (not (string-empty-p name)))
+                   name
+                 (majutsu-workspace--name-from-destination dest)))
          (parent (file-name-directory (directory-file-name dest)))
          (args (append (list "workspace" "add" (majutsu-convert-filename-for-jj dest))
                        (and name (list "--name" name))
