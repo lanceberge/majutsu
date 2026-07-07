@@ -432,7 +432,8 @@ directory."
   "Forget workspaces NAMES.
 
 This stops tracking the workspaces' working-copy commits in the repo. The
-workspace directories are not touched on disk."
+workspace directories are not touched on disk unless
+`majutsu-workspace-forget-command' is configured."
   (interactive
    (let* ((names (majutsu-workspace--names)))
      (list (majutsu-completing-read-multiple "Forget workspace(s)" names nil t))))
@@ -441,10 +442,18 @@ workspace directories are not touched on disk."
                              (format "Forget workspace(s) %s? "
                                      (string-join names ", ")))
       (user-error "Forget canceled"))
-    (if (zerop (apply #'majutsu-run-jj (append '("workspace" "forget") names)))
-        (progn
-          (message "Workspace(s) forgotten"))
-      (message "Workspace forget failed"))))
+    (let ((directories (and majutsu-workspace-forget-command
+                            (mapcar (lambda (name)
+                                      (majutsu-workspace--read-root name))
+                                    names))))
+      (if (zerop (apply #'majutsu-run-jj (append '("workspace" "forget") names)))
+          (progn
+            (when majutsu-workspace-forget-command
+              (dolist (directory directories)
+                (let ((default-directory directory))
+                  (funcall majutsu-workspace-forget-command directory))))
+            (message "Workspace(s) forgotten"))
+        (message "Workspace forget failed")))))
 
 (defcustom majutsu-workspace-add-command nil
   "Command to run after `majutsu-workspace-add' creates a workspace.
@@ -452,6 +461,16 @@ When non-nil, the function is called with `default-directory' bound to
 the new workspace root.  When nil, `majutsu-workspace-visit' is used."
   :group 'majutsu
   :type '(choice (const :tag "Visit (dired)" nil)
+                 function))
+
+(defcustom majutsu-workspace-forget-command nil
+  "Command to run after `majutsu-workspace-forget' forgets a workspace.
+When non-nil, the function is called once for each forgotten workspace,
+with the workspace root directory as its sole argument and
+`default-directory' bound to that directory.  When nil, workspace directories
+are left untouched."
+  :group 'majutsu
+  :type '(choice (const :tag "Leave directory untouched" nil)
                  function))
 
 (defcustom majutsu-workspace-add-dir nil
